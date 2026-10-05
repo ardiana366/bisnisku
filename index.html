@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Bisnisku — Hitung BEP &amp; Catat Penjualan Harian Tanpa Login</title>
+  <meta name="description" content="Bisnisku membantu pemilik UMKM menghitung Break-Even Point, mencatat penjualan harian, dan melihat proyeksi laba. Tanpa login, bisa offline, gratis." />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Bisnisku" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <!-- ============ Splash ============ -->
+  <div id="splash" class="splash" role="status" aria-live="polite">
+    <img src="./icons/icon.svg" alt="" width="72" height="72" />
+    <p>Memuat Bisnisku…</p>
+  </div>
+
+  <!-- ============ Top bar ============ -->
+  <header class="topbar" id="topbar" hidden>
+    <div class="topbar__inner">
+      <div class="brand">
+        <img src="./icons/icon.svg" alt="" width="30" height="30" />
+        <span class="brand__name">Bisnisku</span>
+      </div>
+
+      <div class="topbar__biz">
+        <label class="sr-only" for="biz-select">Pilih usaha</label>
+        <div class="select-wrap">
+          <select id="biz-select" class="input input--select"></select>
+        </div>
+        <div class="topbar__actions">
+          <button id="btn-add-biz" class="btn btn--ghost" type="button" title="Tambah Usaha Baru">
+            <span aria-hidden="true">＋</span> Tambah Usaha
+          </button>
+          <button id="btn-delete-biz" class="btn btn--danger-ghost" type="button" title="Hapus usaha ini permanen dari Firestore">
+            <span aria-hidden="true">🗑️</span> Hapus Usaha
+          </button>
+        </div>
+      </div>
+
+      <span id="net-pill" class="pill pill--online" title="Status koneksi">Online</span>
+    </div>
+  </header>
+
+  <!-- ============ Dashboard ============ -->
+  <main id="dashboard-view" class="container" hidden>
+    <h1 class="sr-only">Dasbor Bisnisku</h1>
+
+    <div id="config-banner" class="banner" hidden>
+      <strong>Firebase belum dikonfigurasi.</strong>
+      Data tetap tersimpan di perangkat ini, tetapi belum tersinkron ke cloud.
+      Isi kunci proyek Anda di <code>js/firebase-config.js</code>.
+    </div>
+
+    <!-- Period navigator -->
+    <section class="period" aria-label="Periode laporan">
+      <div class="period__nav">
+        <button id="prev-month" class="icon-btn" type="button" aria-label="Bulan sebelumnya">←</button>
+        <div class="month-pick">
+          <button id="month-label" class="month-label" type="button" aria-haspopup="dialog">Oktober 2026</button>
+          <input id="month-input" type="month" aria-label="Pilih bulan dan tahun" />
+        </div>
+        <button id="next-month" class="icon-btn" type="button" aria-label="Bulan berikutnya">→</button>
+      </div>
+    </section>
+
+    <!-- Chart -->
+    <section class="card chart-card" aria-labelledby="chart-title">
+      <div class="chart-card__head">
+        <h2 id="chart-title" class="card__title">Pendapatan Harian vs Target BEP</h2>
+        <ul class="legend" aria-label="Keterangan grafik">
+          <li><i class="dot dot--green"></i>Capai BEP</li>
+          <li><i class="dot dot--cyan"></i>Di bawah BEP</li>
+          <li><i class="dot dot--amber"></i>Target BEP</li>
+        </ul>
+      </div>
+      <div class="chart-wrap" id="chart-wrap">
+        <canvas id="sales-chart" role="img" aria-label="Grafik batang pendapatan harian dengan garis target BEP"></canvas>
+        <div id="chart-tip" class="chart-tip" hidden></div>
+      </div>
+    </section>
+
+    <!-- Post-BEP Profit Allocation Card -->
+    <section id="profit-allocation-card" class="profit-card" style="display: none;">
+      <div class="profit-header">
+        <div class="badge-celebration">🎉 Target BEP Terlampaui!</div>
+        <h3>Rekomendasi Alokasi Laba Bersih Bulan Ini</h3>
+        <p class="text-muted">
+          Beban operasional &amp; cicilan bulan ini telah tertutup di tanggal <strong id="bep-reached-date">-</strong>. 
+          Surplus bersih saat ini: <strong id="surplus-net-amount" class="text-success">Rp 0</strong>
+        </p>
+      </div>
+
+      <div class="allocation-grid">
+        <div class="allocation-item emergency">
+          <div class="alloc-title">
+            <span>🛡️ Cadangan Kas (40%)</span>
+            <strong id="alloc-emergency-val">Rp 0</strong>
+          </div>
+          <p class="alloc-desc">Amankan operasional minim pendapatan untuk 1–3 bulan ke depan.</p>
+        </div>
+
+        <div class="allocation-item reinvest">
+          <div class="alloc-title">
+            <span>🚀 Reinvestasi (30%)</span>
+            <strong id="alloc-reinvest-val">Rp 0</strong>
+          </div>
+          <p class="alloc-desc">Modal putar bahan baku, promosi, atau peralatan baru.</p>
+        </div>
+
+        <div class="allocation-item dividend">
+          <div class="alloc-title">
+            <span>💼 Prive / Dividen (30%)</span>
+            <strong id="alloc-dividend-val">Rp 0</strong>
+          </div>
+          <p class="alloc-desc">Gaji pemilik atau laba yang aman ditarik tanpa mengganggu arus kas.</p>
+        </div>
+
+        <div class="allocation-item investor" id="alloc-investor-card" style="display: none;">
+          <div class="alloc-title">
+            <span id="alloc-investor-title">🤝 Bagi Hasil Investor (0%)</span>
+            <strong id="alloc-investor-val">Rp 0</strong>
+          </div>
+          <p class="alloc-desc" id="alloc-investor-desc">Kewajiban bagi hasil keuntungan kepada investor bulan ini.</p>
+        </div>
+      </div>
+
+      <div id="capex-payback-banner" class="capex-banner" style="display: none;">
+        💡 <strong>Tips Pelunasan Modal:</strong> Masih ada sisa modal awal yang belum tertutup sebesar <span id="remaining-capex-val">Rp 0</span>. Disarankan mengalihkan porsi <em>Reinvestasi</em> atau <em>Prive</em> untuk melunasi sisa modal lebih cepat.
+      </div>
+    </section>
+
+    <!-- KPI cards -->
+    <section class="kpis" aria-label="Ringkasan KPI">
+      <article class="card kpi">
+        <p class="kpi__label">Pendapatan Terealisasi</p>
+        <p class="kpi__value" id="kpi-revenue">Rp 0</p>
+        <div class="meter" aria-hidden="true"><span id="kpi-meter"></span></div>
+        <p class="kpi__sub" id="kpi-revenue-sub">0% beban bulanan tertutup</p>
+      </article>
+      <article class="card kpi">
+        <p class="kpi__label">Rata-rata Pendapatan Harian</p>
+        <p class="kpi__value" id="kpi-avg">Rp 0</p>
+        <p class="kpi__sub" id="kpi-avg-sub">0 hari tercatat</p>
+      </article>
+      <article class="card kpi" id="kpi-net-card">
+        <p class="kpi__label">Laba Bersih Bulan Ini</p>
+        <p class="kpi__value" id="kpi-net">–</p>
+        <div id="kpi-net-breakdown" class="kpi__breakdown" style="font-size: 0.76rem; color: #94a3b8; margin: 4px 0 6px; line-height: 1.4;"></div>
+        <p class="kpi__sub" id="kpi-net-sub">Catat penjualan untuk melihat proyeksi</p>
+      </article>
+    </section>
+
+    <!-- BEP targets -->
+    <section class="card" aria-labelledby="bep-title">
+      <h2 id="bep-title" class="card__title">Target Harian untuk Balik Modal (BEP)</h2>
+      <div class="stats" id="bep-stats"></div>
+      <div class="bep-actions" style="margin: 14px 0 10px; display: flex; flex-wrap: wrap; gap: 8px;">
+        <button type="button" class="btn-secondary" id="btn-view-burden">
+          📋 Cek Beban Saat Ini
+        </button>
+        <button type="button" class="btn-secondary" id="btn-add-product">
+          ＋ Tambah Produk
+        </button>
+        <button type="button" class="btn-secondary" id="btn-list-modal">
+          💰 List Modal
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="bep-table">
+          <thead>
+            <tr>
+              <th scope="col">Produk</th>
+              <th scope="col" class="num">Harga</th>
+              <th scope="col" class="num">Porsi</th>
+              <th scope="col" class="num">Target/hari</th>
+              <th scope="col" class="num" style="width: 50px;">Aksi</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Records -->
+    <section class="card" aria-labelledby="rec-title">
+      <h2 id="rec-title" class="card__title">Catatan Penjualan Bulan Ini</h2>
+      <ul class="records" id="records"></ul>
+      <p class="empty" id="records-empty" hidden>Belum ada catatan. Tekan tombol <strong>＋</strong> di pojok kanan bawah untuk memulai.</p>
+    </section>
+
+    <!-- Incidental Expenses -->
+    <section class="card" aria-labelledby="exp-sec-title">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+        <h2 id="exp-sec-title" class="card__title" style="margin: 0;">Pengeluaran Kas Bulan Ini (Insidental)</h2>
+        <button type="button" class="btn-secondary" id="btn-add-exp-sec" title="Tambah Pengeluaran Kas">
+          💸 + Catat Pengeluaran
+        </button>
+      </div>
+      <ul class="records" id="expense-records"></ul>
+      <p class="empty" id="expenses-empty" hidden>Belum ada pengeluaran kas insidental di bulan ini.</p>
+    </section>
+  </main>
+
+  <!-- ============ Floating Action Button (FAB) Speed Dial ============ -->
+  <div id="fab-container" class="fab-container" hidden>
+    <div id="fab-menu" class="fab-menu" style="display: none;">
+      <button type="button" class="fab-option fab-option--sale" id="fab-opt-sale">
+        <span class="fab-option__icon">📈</span>
+        <span class="fab-option__label">Catat Penjualan</span>
+      </button>
+      <button type="button" class="fab-option fab-option--expense" id="fab-opt-expense">
+        <span class="fab-option__icon">💸</span>
+        <span class="fab-option__label">Catat Pengeluaran</span>
+      </button>
+    </div>
+    <button id="fab-main" class="fab-main" type="button" aria-expanded="false" aria-label="Menu Catat Transaksi" title="Catat Penjualan / Pengeluaran">
+      <span class="fab-icon" id="fab-icon">＋</span>
+    </button>
+  </div>
+
+  <!-- ============ Wizard ============ -->
+  <section id="wizard-view" class="wizard" hidden aria-label="Pengaturan usaha baru">
+    <div class="wizard__inner">
+      <div class="wizard__top">
+        <button id="wz-back" class="icon-btn" type="button" aria-label="Kembali">←</button>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="wz-progress">
+          <div class="progress__bar" id="wz-progress-bar"></div>
+        </div>
+        <button id="wz-cancel" class="icon-btn" type="button" aria-label="Batalkan">✕</button>
+      </div>
+      <p id="wz-step-label" class="eyebrow"></p>
+      <div id="wz-stage" class="wizard__stage"></div>
+      <p id="wz-hint" class="wizard__hint" role="status"></p>
+      <div class="wizard__nav">
+        <button id="wz-next" class="btn btn--primary btn--lg" type="button">Lanjut →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Daily logger modal ============ -->
+  <div id="logger-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="logger-title">
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__sheet">
+      <header class="modal__head">
+        <h2 id="logger-title">Catat Penjualan Harian</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Tutup">✕</button>
+      </header>
+
+      <div class="modal__body">
+        <div class="field">
+          <label for="logger-date">Tanggal</label>
+          <input id="logger-date" class="input" type="date" />
+        </div>
+
+        <div id="logger-products" class="logger-list"></div>
+
+        <div class="totals">
+          <div><span>Total Pendapatan</span><strong id="lg-revenue">Rp 0</strong></div>
+          <div><span>Total HPP</span><strong id="lg-cogs">Rp 0</strong></div>
+          <div><span>Laba Kotor</span><strong id="lg-gross">Rp 0</strong></div>
+        </div>
+
+        <div id="logger-bep" class="bep bep--low" role="status">
+          <div class="bep__row">
+            <span id="lg-bep-text">Target BEP</span>
+            <strong id="lg-bep-pct">0%</strong>
+          </div>
+          <div class="meter"><span id="lg-bep-meter"></span></div>
+        </div>
+
+        <div class="field">
+          <label for="logger-notes">Catatan (opsional)</label>
+          <textarea id="logger-notes" class="input" rows="2" maxlength="500" placeholder="mis. hujan deras, ada promo…"></textarea>
+        </div>
+      </div>
+
+      <footer class="modal__foot">
+        <button id="lg-delete" class="btn btn--danger" type="button" hidden>Hapus</button>
+        <button id="lg-save" class="btn btn--primary btn--lg" type="button">Simpan</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============ Current Burden Breakdown Modal ============ -->
+  <div id="burden-view-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📋 Rincian Beban Usaha Saat Ini</h3>
+        <button type="button" class="btn-close" id="btn-close-burden-view">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="burden-summary-banner">
+          <div class="burden-sum-col">
+            <span class="muted-label">Total Beban Bulanan</span>
+            <strong id="bv-total-monthly" class="highlight-val">Rp 0</strong>
+          </div>
+          <div class="burden-sum-col">
+            <span class="muted-label">Beban Harian (BEP Target)</span>
+            <strong id="bv-total-daily" class="highlight-val">Rp 0 / hari</strong>
+          </div>
+        </div>
+
+        <div class="burden-section">
+          <div class="burden-section-head">
+            <h4>Biaya Operasional Rutin (Opex)</h4>
+            <span id="bv-opex-total" class="badge-sub">Rp 0 / bln</span>
+          </div>
+          <div id="bv-opex-list" class="burden-items-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <div class="burden-section">
+          <div class="burden-section-head">
+            <h4>Beban Modal / Cicilan</h4>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="bv-capital-monthly" class="badge-sub">Rp 0 / bln</span>
+              <button type="button" class="btn-edit-cost" id="btn-bv-edit-capital" title="Ubah detail beban modal/cicilan">✏️</button>
+            </div>
+          </div>
+          <div id="bv-capital-card" class="burden-capital-card">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem; display: flex; gap: 8px;">
+          <button type="button" class="btn-primary-action" id="btn-bv-add-cost" style="margin-top: 0; flex: 1;">
+            ＋ Tambah Beban
+          </button>
+          <button type="button" class="btn-secondary" id="btn-bv-add-capital" style="min-width: 120px;">
+            💰 Tambah Modal
+          </button>
+          <button type="button" class="btn-secondary" id="btn-bv-close" style="min-width: 80px;">
+            Tutup
+          </button>
+        </div>
+
+        <div style="margin-top: 1.25rem; padding-top: 0.85rem; border-top: 1px dashed rgba(248, 113, 113, 0.3); display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+          <span style="font-size: 0.8rem; color: #94a3b8;">Hapus seluruh data usaha ini dari Firestore?</span>
+          <button type="button" class="btn btn--danger" id="btn-bv-delete-biz" style="min-height: 36px; padding: 0 12px; font-size: 0.82rem; white-space: nowrap;">
+            🗑️ Hapus Usaha
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Add Burden Modal ============ -->
+  <div id="add-burden-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>＋ Tambah Beban Usaha Baru</h3>
+        <button type="button" class="btn-close" id="btn-close-add-burden">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          Tambahkan pengeluaran rutin baru untuk otomatis menyesuaikan target BEP dan dasbor keuangan Anda.
+        </p>
+
+        <div class="form-group">
+          <label for="add-burden-name">Nama / Jenis Biaya:</label>
+          <input type="text" id="add-burden-name" placeholder="Contoh: Sewa Gudang, Gaji Part-time, WiFi" />
+        </div>
+
+        <div class="form-group">
+          <label for="add-burden-amount">Nominal Biaya:</label>
+          <div class="input-currency-wrapper">
+            <span class="currency-prefix">Rp</span>
+            <input type="number" id="add-burden-amount" placeholder="0" min="0" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="add-burden-freq">Frekuensi Pembayaran:</label>
+          <select id="add-burden-freq" class="input input--select" style="min-height: 42px; background: #0f172a; color: #f1f5f9; border: 1px solid #334155; border-radius: var(--radius-sm, 10px); padding: 8px 12px;">
+            <option value="monthly" selected>Bulanan (per bulan)</option>
+            <option value="daily">Harian (per hari — otomatis × 30)</option>
+            <option value="yearly">Tahunan (per tahun — otomatis ÷ 12)</option>
+          </select>
+        </div>
+
+        <!-- Live Impact Preview Box -->
+        <div id="add-burden-preview" class="sim-result-box" style="display: none;">
+          <div class="sim-metric-row">
+            <span>Beban Bulanan Bertambah:</span>
+            <strong id="ab-preview-monthly" class="text-warning">+Rp 0 / bln</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Dampak ke BEP Harian:</span>
+            <strong id="ab-preview-daily" class="text-primary">+Rp 0 / hari</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Total Beban Bulanan Baru:</span>
+            <strong id="ab-preview-total" class="text-light">Rp 0</strong>
+          </div>
+        </div>
+
+        <button type="button" class="btn-primary-action" id="btn-save-new-burden" style="margin-top: 1.25rem;">
+          Simpan Beban Baru ✓
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Edit Single Cost Item Modal ============ -->
+  <div id="edit-cost-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>✏️ Ubah Rincian Beban</h3>
+        <button type="button" class="btn-close" id="btn-close-edit-cost">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          Perbarui nama atau nominal rincian pengeluaran operasional usaha Anda.
+        </p>
+
+        <div class="form-group">
+          <label for="edit-cost-name">Nama / Jenis Biaya:</label>
+          <input type="text" id="edit-cost-name" placeholder="mis. Sewa Gudang, WiFi, Gaji" />
+        </div>
+
+        <div class="form-group">
+          <label for="edit-cost-amount">Nominal Biaya:</label>
+          <div class="input-currency-wrapper">
+            <span class="currency-prefix">Rp</span>
+            <input type="number" id="edit-cost-amount" placeholder="0" min="0" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-cost-freq">Frekuensi Pembayaran:</label>
+          <select id="edit-cost-freq" class="input input--select" style="min-height: 42px; background: #0f172a; color: #f1f5f9; border: 1px solid #334155; border-radius: var(--radius-sm, 10px); padding: 8px 12px; width: 100%;">
+            <option value="monthly">Bulanan (per bulan)</option>
+            <option value="daily">Harian (per hari — otomatis × 30)</option>
+            <option value="yearly">Tahunan (per tahun — otomatis ÷ 12)</option>
+          </select>
+        </div>
+
+        <!-- Live Impact Preview Box -->
+        <div id="edit-cost-preview" class="sim-result-box" style="display: none; margin-top: 1rem;">
+          <div class="sim-metric-row">
+            <span>Beban Bulanan Item Ini:</span>
+            <strong id="ec-preview-item-monthly" class="text-light">Rp 0 / bln</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Perubahan Beban:</span>
+            <strong id="ec-preview-delta" class="text-warning">Rp 0</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Total Beban Bulanan Baru:</span>
+            <strong id="ec-preview-total-monthly" class="text-primary">Rp 0 / bln</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Target BEP Harian Baru:</span>
+            <strong id="ec-preview-new-daily" class="text-primary">Rp 0 / hari</strong>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem; display: flex; gap: 8px;">
+          <button type="button" class="btn-primary-action" id="btn-save-edit-cost" style="margin-top: 0; flex: 1;">
+            Simpan Perubahan Beban ✓
+          </button>
+          <button type="button" class="btn-secondary" id="btn-cancel-edit-cost" style="min-width: 80px;">
+            Batal
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Edit Capital Burden Modal ============ -->
+  <div id="edit-capital-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>✏️ Ubah Beban Modal / Cicilan</h3>
+        <button type="button" class="btn-close" id="btn-close-edit-capital">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" id="edit-cap-desc">
+          Perbarui detail alokasi cicilan atau target balik modal usaha Anda.
+        </p>
+
+        <div id="edit-cap-loan-fields">
+          <div class="form-group">
+            <label for="edit-cap-loan-capital">Pokok Pinjaman (Rp):</label>
+            <div class="input-currency-wrapper">
+              <span class="currency-prefix">Rp</span>
+              <input type="number" id="edit-cap-loan-capital" placeholder="0" min="0" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="edit-cap-loan-tenor">Tenor Pinjaman (Bulan):</label>
+            <input type="number" id="edit-cap-loan-tenor" placeholder="12" min="1" />
+          </div>
+          <div class="form-group">
+            <label for="edit-cap-loan-interest">Bunga per Tahun (%):</label>
+            <input type="number" id="edit-cap-loan-interest" placeholder="0" min="0" step="0.1" />
+          </div>
+        </div>
+
+        <div id="edit-cap-own-fields" style="display: none;">
+          <div class="form-group">
+            <label for="edit-cap-own-capital">Modal Awal Sendiri (Rp):</label>
+            <div class="input-currency-wrapper">
+              <span class="currency-prefix">Rp</span>
+              <input type="number" id="edit-cap-own-capital" placeholder="0" min="0" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="edit-cap-own-payback">Target Balik Modal (Bulan):</label>
+            <input type="number" id="edit-cap-own-payback" placeholder="12" min="1" />
+          </div>
+        </div>
+
+        <!-- Live Impact Preview Box -->
+        <div id="edit-cap-preview" class="sim-result-box" style="margin-top: 1rem;">
+          <div class="sim-metric-row">
+            <span>Cicilan Bulanan Modal:</span>
+            <strong id="ecap-preview-monthly" class="text-primary">Rp 0 / bln</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Total Beban Bulanan Baru:</span>
+            <strong id="ecap-preview-total" class="text-light">Rp 0</strong>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem; display: flex; gap: 8px;">
+          <button type="button" class="btn-primary-action" id="btn-save-edit-capital" style="margin-top: 0; flex: 1;">
+            Simpan Perubahan Modal ✓
+          </button>
+          <button type="button" class="btn-secondary" id="btn-cancel-edit-capital" style="min-width: 80px;">
+            Batal
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Edit Product Modal ============ -->
+  <div id="edit-product-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="ep-modal-title">✏️ Edit Produk</h3>
+        <button type="button" class="btn-close" id="btn-close-edit-product">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          Perbarui detail produk termasuk nama, HPP (modal bahan), margin keuntungan, harga jual, dan porsi penjualan. Target BEP dan kuota kasir akan otomatis disesuaikan.
+        </p>
+
+        <div class="burden-summary-banner" style="margin: 1rem 0;">
+          <div class="burden-sum-col">
+            <span class="muted-label">HPP Saat Ini</span>
+            <strong id="ep-current-cogs" class="highlight-val">Rp 0</strong>
+          </div>
+          <div class="burden-sum-col">
+            <span class="muted-label">Harga Saat Ini</span>
+            <strong id="ep-current-price" class="highlight-val">Rp 0</strong>
+          </div>
+          <div class="burden-sum-col">
+            <span class="muted-label">Porsi Saat Ini</span>
+            <strong id="ep-current-share" class="highlight-val">0%</strong>
+          </div>
+          <div class="burden-sum-col">
+            <span class="muted-label">Margin Saat Ini</span>
+            <strong id="ep-current-margin" class="highlight-val">0%</strong>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-product-name">Nama Produk:</label>
+          <input type="text" id="edit-product-name" maxlength="60" placeholder="mis. Kopi Susu Aren" />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label for="edit-product-cogs">HPP / Modal Pokok (Rp):</label>
+            <div class="input-currency-wrapper">
+              <span class="currency-prefix">Rp</span>
+              <input type="number" id="edit-product-cogs" placeholder="0" min="0" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="edit-product-new-share">Porsi Penjualan (%):</label>
+            <input type="number" id="edit-product-new-share" placeholder="0" min="0" max="100" step="0.1" />
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 0.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label for="edit-product-margin-range" style="margin-bottom: 0;">Target Margin Keuntungan:</label>
+            <strong id="edit-product-margin-val" style="color: #38bdf8; font-size: 1.05rem;">50%</strong>
+          </div>
+          <input type="range" id="edit-product-margin-range" class="range" min="5" max="95" step="1" value="50" />
+          <div class="range-scale"><span>5%</span><span>50%</span><span>95%</span></div>
+        </div>
+
+        <div class="form-group" style="margin-top: 0.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="edit-product-new-price" style="margin-bottom: 0;">Harga Jual (Rp):</label>
+            <button type="button" id="btn-apply-suggested-price" class="btn-sm-text" style="background: none; border: none; color: #38bdf8; cursor: pointer; font-size: 0.82rem; padding: 0; text-decoration: underline;">
+              Pakai Rekomendasi
+            </button>
+          </div>
+          <div class="input-currency-wrapper">
+            <span class="currency-prefix">Rp</span>
+            <input type="number" id="edit-product-new-price" placeholder="0" min="0" />
+          </div>
+          <small id="ep-price-hint" class="field__note" style="display: block; margin-top: 4px; font-size: 0.82rem;"></small>
+        </div>
+
+        <!-- Live Impact Preview Box -->
+        <div id="edit-product-preview" class="sim-result-box" style="display: none; margin-top: 1rem;">
+          <div class="sim-metric-row">
+            <span>Margin Keuntungan Baru:</span>
+            <strong id="ep-new-margin" class="text-primary">0%</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Laba Kotor per Unit:</span>
+            <strong id="ep-profit-per-unit" class="text-light">Rp 0</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Perubahan Harga:</span>
+            <strong id="ep-price-delta" class="text-warning">Rp 0</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Perubahan HPP:</span>
+            <strong id="ep-cogs-delta" class="text-warning">Rp 0</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Perubahan Porsi:</span>
+            <strong id="ep-share-delta" class="text-warning">0%</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Total Porsi Seluruh Produk:</span>
+            <strong id="ep-total-share-preview" class="text-light">100%</strong>
+          </div>
+          <p id="ep-margin-warning" class="sim-insight-note" style="display: none; color: #f87171; border-color: rgba(248, 113, 113, 0.4); background: rgba(239, 68, 68, 0.1);">
+            ⚠️ <em>Peringatan:</em> Harga baru lebih rendah dari atau sama dengan HPP! Produk ini tidak menghasilkan laba kotor.
+          </p>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem; display: flex; gap: 8px;">
+          <button type="button" class="btn-primary-action" id="btn-save-product-price" style="margin-top: 0; flex: 1;">
+            Simpan Perubahan Produk ✓
+          </button>
+          <button type="button" class="btn-secondary" id="btn-cancel-edit-product" style="min-width: 80px;">
+            Batal
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Add Capital Modal ============ -->
+  <div id="add-capital-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>💰 Tambah Modal Usaha</h3>
+        <button type="button" class="btn-close" id="btn-close-add-capital">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          Tambahkan suntikan modal atau investasi baru. Beban bulanan, BEP harian, dan pembagian laba akan langsung diperbarui.
+        </p>
+
+        <!-- Capital Type Choice -->
+        <div class="form-group">
+          <label>Jenis Penambahan Modal:</label>
+          <div class="choice-grid" role="radiogroup" style="grid-template-columns: repeat(3, 1fr); gap: 8px;">
+            <button type="button" class="choice is-selected" id="btn-cap-type-invest" data-cap-type="invest">
+              <span class="choice__icon" aria-hidden="true">🤝</span>
+              <span class="choice__name" style="font-size: 0.85rem;">Investasi</span>
+              <span class="choice__desc" style="font-size: 0.72rem;">Bagi Hasil</span>
+            </button>
+            <button type="button" class="choice" id="btn-cap-type-own" data-cap-type="own">
+              <span class="choice__icon" aria-hidden="true">💰</span>
+              <span class="choice__name" style="font-size: 0.85rem;">Modal Sendiri</span>
+              <span class="choice__desc" style="font-size: 0.72rem;">Owner Equity</span>
+            </button>
+            <button type="button" class="choice" id="btn-cap-type-loan" data-cap-type="loan">
+              <span class="choice__icon" aria-hidden="true">🏦</span>
+              <span class="choice__name" style="font-size: 0.85rem;">Pinjaman</span>
+              <span class="choice__desc" style="font-size: 0.72rem;">Hutang Bank</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="add-cap-name">Nama / Keterangan Sumber Modal:</label>
+          <input type="text" id="add-cap-name" placeholder="mis. Investor Bpk. Hendra / Ekspansi Cabang" />
+        </div>
+
+        <div class="form-group">
+          <label for="add-cap-amount">Nominal Modal Tambahan (Rp):</label>
+          <div class="input-currency-wrapper">
+            <span class="currency-prefix">Rp</span>
+            <input type="number" id="add-cap-amount" placeholder="0" min="0" />
+          </div>
+        </div>
+
+        <!-- Invest Fields -->
+        <div id="add-cap-invest-fields">
+          <div class="form-group">
+            <label>Skema Imbal Hasil Investasi:</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
+              <label class="choice" id="label-scheme-dynamic" style="display: flex; flex-direction: column; cursor: pointer; padding: 10px; border-radius: 8px; border: 1px solid #38bdf8; background: rgba(56, 189, 248, 0.1);">
+                <input type="radio" name="invest-scheme" id="scheme-dynamic" value="dynamic" checked style="margin-bottom: 4px;" />
+                <strong style="font-size: 0.85rem; color: #38bdf8;">📈 Dinamis dari Laba</strong>
+                <small style="font-size: 0.74rem; color: #94a3b8; margin-top: 2px;">Bagi hasil % dari laba usaha riil bulan berjalan (setelah BEP)</small>
+              </label>
+              <label class="choice" id="label-scheme-fixed" style="display: flex; flex-direction: column; cursor: pointer; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a;">
+                <input type="radio" name="invest-scheme" id="scheme-fixed" value="fixed" style="margin-bottom: 4px;" />
+                <strong style="font-size: 0.85rem; color: #f1f5f9;">📊 Persentase Tetap</strong>
+                <small style="font-size: 0.74rem; color: #94a3b8; margin-top: 2px;">Return % tetap per bulan dari modal yang diinvestasikan</small>
+              </label>
+            </div>
+          </div>
+
+          <!-- Dynamic Scheme Input -->
+          <div id="invest-dynamic-box">
+            <div class="form-group">
+              <label for="add-cap-dynamic-pct">Bagi Hasil dari Laba Usaha (%):</label>
+              <input type="number" id="add-cap-dynamic-pct" placeholder="15" min="0.1" max="100" step="0.5" value="15" />
+              <small class="text-muted" style="font-size: 0.8rem; color: #94a3b8;">
+                Investor mendapatkan persentase ini dari surplus keuntungan usaha setelah target BEP tercapai.
+              </small>
+            </div>
+            <div class="form-group">
+              <label for="add-cap-dynamic-tenor">Tenor Pengembalian Pokok (Bulan, Opsional):</label>
+              <input type="number" id="add-cap-dynamic-tenor" placeholder="0 (Tanpa cicilan pokok bulanan)" min="0" />
+            </div>
+          </div>
+
+          <!-- Fixed Scheme Input -->
+          <div id="invest-fixed-box" style="display: none;">
+            <div class="form-group">
+              <label for="add-cap-fixed-pct">Imbal Hasil Tetap (% per Bulan):</label>
+              <input type="number" id="add-cap-fixed-pct" placeholder="2" min="0.1" max="100" step="0.1" value="2" />
+              <small class="text-muted" style="font-size: 0.8rem; color: #94a3b8;">
+                Persentase keuntungan tetap bulanan yang dibayarkan ke investor dari nominal modal.
+              </small>
+            </div>
+            <div class="form-group">
+              <label for="add-cap-fixed-tenor">Tenor Pengembalian Pokok (Bulan, Opsional):</label>
+              <input type="number" id="add-cap-fixed-tenor" placeholder="mis. 12 (kosongkan jika tanpa cicilan pokok)" min="0" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Own Capital Fields -->
+        <div id="add-cap-own-fields" style="display: none;">
+          <div class="form-group">
+            <label for="add-cap-own-payback">Target Balik Modal (Bulan, Opsional):</label>
+            <input type="number" id="add-cap-own-payback" placeholder="mis. 12 (kosongkan jika tanpa cicilan bulanan)" min="1" />
+          </div>
+        </div>
+
+        <!-- Loan Capital Fields -->
+        <div id="add-cap-loan-fields" style="display: none;">
+          <div class="form-group">
+            <label for="add-cap-loan-tenor">Tenor Pinjaman (Bulan):</label>
+            <input type="number" id="add-cap-loan-tenor" placeholder="12" min="1" value="12" />
+          </div>
+          <div class="form-group">
+            <label for="add-cap-loan-interest">Bunga per Tahun (%):</label>
+            <input type="number" id="add-cap-loan-interest" placeholder="10" min="0" step="0.1" value="10" />
+          </div>
+        </div>
+
+        <!-- Live Impact Preview Box -->
+        <div id="add-cap-preview" class="sim-result-box" style="display: none; margin-top: 1rem;">
+          <div class="sim-metric-row">
+            <span>Tambahan Modal:</span>
+            <strong id="ac-preview-amount" class="text-light">+Rp 0</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Skema Imbal Hasil:</span>
+            <strong id="ac-preview-scheme" class="text-primary">Bagi hasil dinamis</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Beban Tetap Bulanan:</span>
+            <strong id="ac-preview-monthly" class="text-warning">+Rp 0 / bln</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Dampak ke Target BEP Harian:</span>
+            <strong id="ac-preview-daily" class="text-primary">+Rp 0 / hari</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Total Beban Bulanan Usaha:</span>
+            <strong id="ac-preview-total" class="text-light">Rp 0 / bln</strong>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem; display: flex; gap: 8px;">
+          <button type="button" class="btn-primary-action" id="btn-save-add-capital" style="margin-top: 0; flex: 1;">
+            Simpan Tambahan Modal ✓
+          </button>
+          <button type="button" class="btn-secondary" id="btn-cancel-add-capital" style="min-width: 80px;">
+            Batal
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Delete Business Modal ============ -->
+  <div id="delete-biz-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="color: #f87171;">🗑️ Hapus Usaha Permanen</h3>
+        <button type="button" class="btn-close" id="btn-close-delete-biz">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="delete-biz-warning">
+          <p>
+            ⚠️ <strong>Tindakan ini permanen dan tidak dapat dibatalkan!</strong>
+          </p>
+          <p style="margin-top: 6px; font-size: 0.88rem; color: #cbd5e1;">
+            Menghapus usaha <strong id="del-biz-name" style="color: #f8fafc;"></strong> akan menghapus seluruh data terkait dari database Firestore:
+          </p>
+          <ul style="margin: 8px 0 0 16px; padding: 0; font-size: 0.84rem; color: #94a3b8; line-height: 1.6;">
+            <li>Profil usaha, modal awal, dan konfigurasi BEP</li>
+            <li>Semua daftar produk dan target penjualan</li>
+            <li>Semua riwayat catatan penjualan harian</li>
+            <li>Semua data beban operasional dan cicilan</li>
+          </ul>
+        </div>
+
+        <div class="form-group" style="margin-top: 1rem;">
+          <label for="del-biz-confirm-input" style="font-size: 0.85rem;">
+            Ketik nama usaha <strong id="del-biz-match-name" style="color: #f87171;"></strong> untuk konfirmasi:
+          </label>
+          <input type="text" id="del-biz-confirm-input" placeholder="Ketik nama usaha di sini..." autocomplete="off" />
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem; display: flex; gap: 8px;">
+          <button type="button" class="btn btn--danger btn--lg" id="btn-confirm-delete-biz" style="flex: 1; min-height: 44px;" disabled>
+            Ya, Hapus Permanen
+          </button>
+          <button type="button" class="btn btn--ghost" id="btn-cancel-delete-biz" style="min-width: 90px; min-height: 44px;">
+            Batal
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Incidental Expense Modal ============ -->
+  <div id="incidental-expense-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>💸 Catat Pengeluaran Kas (Uang Keluar)</h3>
+        <button type="button" class="btn-close" id="btn-close-expense-modal">&times;</button>
+      </div>
+      <form id="form-incidental-expense" class="modal-body">
+        <div class="form-group">
+          <label for="exp-date">Tanggal Pengeluaran:</label>
+          <input type="date" id="exp-date" required />
+        </div>
+
+        <div class="form-group">
+          <label for="exp-title">Keterangan Pengeluaran:</label>
+          <input type="text" id="exp-title" placeholder="Contoh: Servis Mesin Kopi / Beli Kursi Tambahan" required />
+        </div>
+
+        <div class="form-group">
+          <label for="exp-amount">Nominal Pengeluaran:</label>
+          <div class="input-currency-wrapper">
+            <span class="currency-prefix">Rp</span>
+            <input type="number" id="exp-amount" min="1" placeholder="0" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Jenis Pengeluaran:</label>
+          <div class="expense-type-toggle">
+            <label class="toggle-option">
+              <input type="radio" name="expenseType" value="opex" checked />
+              <div class="toggle-content">
+                <strong>Beban Operasional Lepas</strong>
+                <small>Servis alat, beli kemasan/perlengkapan, retribusi. Memotong laba bulan ini.</small>
+              </div>
+            </label>
+
+            <label class="toggle-option">
+              <input type="radio" name="expenseType" value="capex" />
+              <div class="toggle-content">
+                <strong>Beli Aset Baru / Modal (Capex)</strong>
+                <small>Beli mesin baru, renovasi tempat. Menambah target sisa modal yang harus balik.</small>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="exp-notes">Catatan Tambahan (Opsional):</label>
+          <input type="text" id="exp-notes" placeholder="Contoh: Bengkel Mas Joko, nota ada di laci" />
+        </div>
+
+        <button type="submit" class="btn-primary-action" id="btn-save-expense">
+          Simpan Pengeluaran Kas &check;
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ List & Manage Capital Modal (CRUD List Modal) ============ -->
+  <div id="list-capital-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-header">
+        <h3>💰 Daftar &amp; Kelola Modal Usaha</h3>
+        <button type="button" class="btn-close" id="btn-close-list-capital">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          Kelola seluruh sumber modal usaha, modal sendiri, pinjaman, dan suntikan investasi bagi hasil Anda.
+        </p>
+
+        <!-- Capital Summary Banner -->
+        <div class="burden-summary-banner" style="margin: 1rem 0;">
+          <div class="burden-sum-col">
+            <span class="muted-label">Total Modal Terkumpul</span>
+            <strong id="lcm-total-capital" class="highlight-val">Rp 0</strong>
+          </div>
+          <div class="burden-sum-col">
+            <span class="muted-label">Sisa Modal Belum Balik</span>
+            <strong id="lcm-unrecovered-capital" class="highlight-val" style="color: #f59e0b;">Rp 0</strong>
+          </div>
+          <div class="burden-sum-col">
+            <span class="muted-label">Cicilan Modal Bulanan</span>
+            <strong id="lcm-monthly-burden" class="highlight-val" style="color: #38bdf8;">Rp 0 / bln</strong>
+          </div>
+        </div>
+
+        <!-- Section 1: Modal Awal -->
+        <div class="burden-section">
+          <div class="burden-section-head">
+            <h4>1. Modal Awal Pendirian Usaha</h4>
+            <button type="button" class="btn-secondary" id="btn-lcm-edit-initial" style="font-size: 0.82rem; padding: 4px 10px; min-height: 32px;">
+              ✏️ Ubah Modal Awal
+            </button>
+          </div>
+          <div id="lcm-initial-capital-card" class="burden-capital-card">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Section 2: Tambahan Modal & Investasi -->
+        <div class="burden-section" style="margin-top: 1.25rem;">
+          <div class="burden-section-head">
+            <h4>2. Suntikan Modal &amp; Investasi Tambahan</h4>
+            <button type="button" class="btn-primary-action" id="btn-lcm-add-capital" style="font-size: 0.82rem; padding: 4px 12px; min-height: 32px; margin-top: 0;">
+              ＋ Tambah Modal Baru
+            </button>
+          </div>
+          <div id="lcm-additions-list" class="burden-items-list" style="margin-top: 8px;">
+            <!-- Dynamically populated list with Edit and Delete actions -->
+          </div>
+          <p id="lcm-additions-empty" class="empty" style="display: none; padding: 12px 0;">Belum ada suntikan modal atau investasi tambahan.</p>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+          <button type="button" class="btn-secondary" id="btn-lcm-close" style="min-width: 90px;">
+            Tutup
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Edit Capital Addition Modal ============ -->
+  <div id="edit-capital-addition-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="eca-modal-title">✏️ Ubah Suntikan Modal</h3>
+        <button type="button" class="btn-close" id="btn-close-edit-cap-add">&times;</button>
+      </div>
+      <form id="form-edit-capital-addition" class="modal-body">
+        <div class="form-group">
+          <label for="eca-name">Nama / Sumber Modal:</label>
+          <input type="text" id="eca-name" required />
+        </div>
+
+        <div class="form-group">
+          <label for="eca-amount">Nominal Modal (Rp):</label>
+          <div class="input-currency-wrapper">
+            <span class="currency-prefix">Rp</span>
+            <input type="number" id="eca-amount" min="1" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Jenis Modal:</label>
+          <div id="eca-type-badge" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8; padding: 6px 0;"></div>
+        </div>
+
+        <!-- Dynamic fields depending on type -->
+        <div id="eca-invest-fields" style="display: none;">
+          <div class="form-group" id="eca-dynamic-box">
+            <label for="eca-dynamic-pct">Bagi Hasil dari Laba Usaha (%):</label>
+            <input type="number" id="eca-dynamic-pct" min="0" max="100" step="0.5" />
+          </div>
+          <div class="form-group" id="eca-fixed-box" style="display: none;">
+            <label for="eca-fixed-pct">Imbal Hasil Tetap (% / bulan):</label>
+            <input type="number" id="eca-fixed-pct" min="0" max="100" step="0.1" />
+          </div>
+          <div class="form-group">
+            <label for="eca-tenor">Tenor Pengembalian Pokok (Bulan, 0 = tanpa cicilan):</label>
+            <input type="number" id="eca-tenor" min="0" />
+          </div>
+        </div>
+
+        <div id="eca-own-fields" style="display: none;">
+          <div class="form-group">
+            <label for="eca-payback">Target Balik Modal (Bulan, 0 = tanpa cicilan):</label>
+            <input type="number" id="eca-payback" min="0" />
+          </div>
+        </div>
+
+        <div id="eca-loan-fields" style="display: none;">
+          <div class="form-group">
+            <label for="eca-loan-tenor">Tenor Pinjaman (Bulan):</label>
+            <input type="number" id="eca-loan-tenor" min="1" />
+          </div>
+          <div class="form-group">
+            <label for="eca-loan-interest">Bunga Pinjaman (% per Tahun):</label>
+            <input type="number" id="eca-loan-interest" min="0" step="0.1" />
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem; display: flex; gap: 8px;">
+          <button type="submit" class="btn-primary-action" id="btn-save-edit-cap-add" style="flex: 1; margin-top: 0;">
+            Simpan Perubahan Modal ✓
+          </button>
+          <button type="button" class="btn-secondary" id="btn-cancel-edit-cap-add" style="min-width: 80px;">
+            Batal
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <noscript><p style="padding:2rem;color:#fff">Bisnisku membutuhkan JavaScript untuk berjalan.</p></noscript>
+  <script>
+    setTimeout(function () {
+      if (!window.__bizmetricBooted && !window.__bisniskuBooted) {
+        var p = document.querySelector("#splash p");
+        if (p) p.textContent = "Gagal memuat aplikasi. Periksa koneksi internet lalu muat ulang halaman.";
+      }
+    }, 10000);
+  </script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
