@@ -275,6 +275,8 @@ const els = {
   btnCloseEditProduct: $("btn-close-edit-product"),
   btnCancelEditProduct: $("btn-cancel-edit-product"),
   epModalTitle: $("ep-modal-title"),
+  epModalDesc: $("ep-modal-desc"),
+  epCurrentBanner: $("ep-current-banner"),
   epCurrentCogs: $("ep-current-cogs"),
   epCurrentPrice: $("ep-current-price"),
   epCurrentShare: $("ep-current-share"),
@@ -1545,7 +1547,13 @@ function openAddProductModal() {
     return;
   }
   editingProductId = null;
-  els.epModalTitle.textContent = "＋ Tambah Produk Baru";
+  if (els.epModalTitle) els.epModalTitle.textContent = "＋ Tambah Produk Baru";
+  if (els.epModalDesc) {
+    els.epModalDesc.textContent =
+      "Tambahkan produk baru ke dalam daftar menu usaha Anda. Target BEP dan kuota kasir akan otomatis disesuaikan.";
+  }
+  if (els.epCurrentBanner) els.epCurrentBanner.style.display = "none";
+
   els.epCurrentCogs.textContent = "Rp 0";
   els.epCurrentPrice.textContent = "Rp 0";
   els.epCurrentShare.textContent = "0%";
@@ -1560,6 +1568,10 @@ function openAddProductModal() {
 
   els.editProductMarginRange.value = 50;
   els.editProductMarginVal.textContent = "50%";
+  if (els.epPriceHint) {
+    els.epPriceHint.textContent = "Isi HPP untuk melihat rekomendasi harga.";
+    els.epPriceHint.style.color = "#94a3b8";
+  }
 
   if (els.editProductPreview) els.editProductPreview.style.display = "none";
   if (els.epMarginWarning) els.epMarginWarning.style.display = "none";
@@ -1583,7 +1595,13 @@ function openEditProductModal(productId) {
   }
 
   editingProductId = prod.id || productId;
-  els.epModalTitle.textContent = `✏️ Edit Produk: ${prod.name}`;
+  if (els.epModalTitle) els.epModalTitle.textContent = `✏️ Edit Produk: ${prod.name}`;
+  if (els.epModalDesc) {
+    els.epModalDesc.textContent =
+      "Perbarui detail produk termasuk nama, HPP (modal bahan), margin keuntungan, harga jual, dan porsi penjualan. Target BEP dan kuota kasir akan otomatis disesuaikan.";
+  }
+  if (els.epCurrentBanner) els.epCurrentBanner.style.display = "grid";
+
   els.epCurrentCogs.textContent = formatRp(prod.cogs);
   els.epCurrentPrice.textContent = formatRp(prod.price);
   els.epCurrentShare.textContent = `${num(prod.salesSharePct).toFixed(1)}%`;
@@ -1614,13 +1632,13 @@ function closeEditProductModal() {
 }
 
 /**
- * Synchronize inputs and preview in the product edit modal.
+ * Synchronize inputs and preview in the product edit/add modal.
  * @param {"margin" | "price" | "cogs" | "share" | "name" | "init"} trigger
  */
 function syncProductEditUi(trigger) {
-  if (!editingProductId) return;
-  const prod = state.products.find((p) => p.id === editingProductId);
-  if (!prod) return;
+  const isEditing = Boolean(editingProductId);
+  const prod = isEditing ? state.products.find((p) => p.id === editingProductId) : null;
+  if (isEditing && !prod) return;
 
   let cogs = Math.max(0, num(els.editProductCogs.value));
   let margin = Number(els.editProductMarginRange.value) || 50;
@@ -1652,6 +1670,12 @@ function syncProductEditUi(trigger) {
       els.editProductMarginRange.value = safeM;
       els.editProductMarginVal.textContent = `${actual.toFixed(1)}%`;
       margin = safeM;
+    } else if (cogs > 0 && price === 0) {
+      const recPrice = suggestPrice(cogs, margin);
+      if (recPrice > 0) {
+        els.editProductNewPrice.value = recPrice;
+        price = recPrice;
+      }
     }
   }
 
@@ -1673,38 +1697,56 @@ function syncProductEditUi(trigger) {
 
   // Update live preview metrics
   const newMargin = marginPct(price, cogs);
-  const profitPerUnit = price - cogs;
-  const oldPrice = num(prod.price);
-  const oldCogs = num(prod.cogs);
-  const oldShare = num(prod.salesSharePct);
+  const profitPerUnit = price > cogs ? price - cogs : 0;
 
-  const deltaPrice = price - oldPrice;
-  const deltaCogs = cogs - oldCogs;
-  const deltaShare = share - oldShare;
+  if (isEditing && prod) {
+    const oldPrice = num(prod.price);
+    const oldCogs = num(prod.cogs);
+    const oldShare = num(prod.salesSharePct);
 
-  const deltaPriceSign = deltaPrice > 0 ? "+" : "";
-  els.epPriceDelta.textContent = `${deltaPriceSign}${formatRp(deltaPrice)}`;
-  els.epPriceDelta.className = deltaPrice > 0 ? "text-primary" : deltaPrice < 0 ? "text-warning" : "text-muted";
+    const deltaPrice = price - oldPrice;
+    const deltaCogs = cogs - oldCogs;
+    const deltaShare = share - oldShare;
 
-  const deltaCogsSign = deltaCogs > 0 ? "+" : "";
-  if (els.epCogsDelta) {
-    els.epCogsDelta.textContent = `${deltaCogsSign}${formatRp(deltaCogs)}`;
-    els.epCogsDelta.className = deltaCogs > 0 ? "text-warning" : deltaCogs < 0 ? "text-primary" : "text-muted";
+    const deltaPriceSign = deltaPrice > 0 ? "+" : "";
+    els.epPriceDelta.textContent = `${deltaPriceSign}${formatRp(deltaPrice)}`;
+    els.epPriceDelta.className = deltaPrice > 0 ? "text-primary" : deltaPrice < 0 ? "text-warning" : "text-muted";
+
+    const deltaCogsSign = deltaCogs > 0 ? "+" : "";
+    if (els.epCogsDelta) {
+      els.epCogsDelta.textContent = `${deltaCogsSign}${formatRp(deltaCogs)}`;
+      els.epCogsDelta.className = deltaCogs > 0 ? "text-warning" : deltaCogs < 0 ? "text-primary" : "text-muted";
+    }
+
+    const deltaShareSign = deltaShare > 0 ? "+" : "";
+    els.epShareDelta.textContent = `${deltaShareSign}${deltaShare.toFixed(1)}%`;
+    els.epShareDelta.className = deltaShare !== 0 ? "text-warning" : "text-muted";
+
+    const otherShare = state.products
+      .filter((p) => p.id !== prod.id)
+      .reduce((s, p) => s + num(p.salesSharePct), 0);
+    const totalShare = otherShare + share;
+    els.epTotalSharePreview.textContent = `${totalShare.toFixed(1)}%`;
+    els.epTotalSharePreview.className = Math.abs(totalShare - 100) < 0.1 ? "text-primary" : "text-warning";
+  } else {
+    // Mode Tambah Produk Baru
+    els.epPriceDelta.textContent = formatRp(price);
+    els.epPriceDelta.className = "text-primary";
+    if (els.epCogsDelta) {
+      els.epCogsDelta.textContent = formatRp(cogs);
+      els.epCogsDelta.className = "text-muted";
+    }
+    els.epShareDelta.textContent = `${share.toFixed(1)}%`;
+    els.epShareDelta.className = "text-primary";
+
+    const existingTotalShare = state.products.reduce((s, p) => s + num(p.salesSharePct), 0);
+    const totalShare = existingTotalShare + share;
+    els.epTotalSharePreview.textContent = `${totalShare.toFixed(1)}%`;
+    els.epTotalSharePreview.className = Math.abs(totalShare - 100) < 0.1 ? "text-primary" : "text-warning";
   }
-
-  const deltaShareSign = deltaShare > 0 ? "+" : "";
-  els.epShareDelta.textContent = `${deltaShareSign}${deltaShare.toFixed(1)}%`;
-  els.epShareDelta.className = deltaShare !== 0 ? "text-warning" : "text-muted";
 
   els.epNewMargin.textContent = `${newMargin.toFixed(1)}%`;
   els.epProfitPerUnit.textContent = formatRp(profitPerUnit);
-
-  const otherShare = state.products
-    .filter((p) => p.id !== prod.id)
-    .reduce((s, p) => s + num(p.salesSharePct), 0);
-  const totalShare = otherShare + share;
-  els.epTotalSharePreview.textContent = `${totalShare.toFixed(1)}%`;
-  els.epTotalSharePreview.className = Math.abs(totalShare - 100) < 0.1 ? "text-primary" : "text-warning";
 
   if (price > 0 && price <= cogs) {
     els.epMarginWarning.style.display = "block";
@@ -1714,14 +1756,26 @@ function syncProductEditUi(trigger) {
     els.epNewMargin.className = "text-primary";
   }
 
-  els.editProductPreview.style.display = "block";
+  if (price > 0 || cogs > 0) {
+    els.editProductPreview.style.display = "block";
+  } else {
+    els.editProductPreview.style.display = "none";
+  }
 }
 
 async function handleSaveProductPrice() {
   const biz = currentBiz();
-  if (!biz || !editingProductId) return;
-  const prod = state.products.find((p) => p.id === editingProductId);
-  if (!prod) return;
+  if (!biz) {
+    toast("Pilih atau buat usaha terlebih dahulu.", "warn");
+    return;
+  }
+
+  const isEditing = Boolean(editingProductId);
+  const prod = isEditing ? state.products.find((p) => p.id === editingProductId) : null;
+  if (isEditing && !prod) {
+    toast("Produk tidak ditemukan.", "warn");
+    return;
+  }
 
   const newName = els.editProductName.value.trim();
   if (!newName) {
@@ -1759,15 +1813,24 @@ async function handleSaveProductPrice() {
   els.btnSaveProductPrice.disabled = true;
   els.btnSaveProductPrice.textContent = "Menyimpan...";
 
-  if (!editingProductId) {
+  if (!isEditing) {
     try {
-      await addProduct(biz.id, {
+      const created = await addProduct(biz.id, {
         name: newName,
         cogs: newCogs,
         price: newPrice,
         salesSharePct: newShare,
         targetMarginPct: newMargin,
       });
+      if (created && created.id && !state.products.some((p) => p.id === created.id)) {
+        state.products.push(created);
+        state.products.sort(
+          (a, b) =>
+            (b.salesSharePct || 0) - (a.salesSharePct || 0) ||
+            String(a.name).localeCompare(String(b.name))
+        );
+        renderAll();
+      }
       closeEditProductModal();
       toast(`Produk "${newName}" berhasil ditambahkan ✓`, "success");
     } catch (err) {
@@ -1775,7 +1838,7 @@ async function handleSaveProductPrice() {
       toast("Gagal menambahkan produk.", "error");
     } finally {
       els.btnSaveProductPrice.disabled = false;
-      els.btnSaveProductPrice.textContent = "Simpan Perubahan Produk ✓";
+      els.btnSaveProductPrice.textContent = "Simpan Produk Baru ✓";
     }
     return;
   }
