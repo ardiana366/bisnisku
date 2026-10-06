@@ -96,22 +96,25 @@ export function buildMonthCsv({ business, products, sales, expenses = [], year, 
   lines.push(row(["Rata-rata Pendapatan Harian (Rp)", round(summary.avgDailyRevenue)]));
   lines.push(row(["Hari Mencapai BEP", summary.daysReachedBep]));
 
+  if (summary.proratedBurden !== undefined) {
+    lines.push(row([`Beban Rutin Prorata (${summary.daysElapsed || summary.recorded || 0} Hari) (Rp)`, round(summary.proratedBurden)]));
+  }
   if (summary.totalIncidentalOpex !== undefined) {
     lines.push(row(["Total Pengeluaran Insidental Opex (Rp)", round(summary.totalIncidentalOpex)]));
   }
   if (summary.totalIncidentalCapex !== undefined) {
     lines.push(row(["Total Pengeluaran Insidental Capex (Rp)", round(summary.totalIncidentalCapex)]));
   }
-  if (summary.operatingNetProfit !== undefined && summary.totalIncidentalCapex > 0) {
-    lines.push(row(["Laba Operasional Berjalan (Rp)", round(summary.operatingNetProfit)]));
+  if (summary.operatingNetProfit !== undefined) {
+    lines.push(row([`Laba Bersih Berjalan (${summary.daysElapsed || summary.recorded || 0} Hari) (Rp)`, round(summary.operatingNetProfit)]));
   }
-  if (summary.netProfitMonthToDate !== undefined) {
-    lines.push(row(["Sisa Kas Riil Berjalan (Rp)", round(summary.netProfitMonthToDate)]));
+  if (summary.netCashRemaining !== undefined && summary.totalIncidentalCapex > 0) {
+    lines.push(row(["Sisa Kas Riil Berjalan (Rp)", round(summary.netCashRemaining)]));
   }
 
   lines.push(
     row([
-      "Proyeksi Sisa Kas Akhir Bulan (Rp)",
+      "Proyeksi Laba Bersih Akhir Bulan (Rp)",
       summary.projectedNet === null ? "-" : round(summary.projectedNet),
     ])
   );

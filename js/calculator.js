@@ -240,30 +240,42 @@ export function runRate({
 /* ------------------------------------------------------------------ */
 
 /**
- * Menghitung Laba Bersih & Arus Kas Akhir Bulan dengan menyertakan pengeluaran insidental
+ * Menghitung Laba Bersih & Arus Kas dengan beban rutin proporsional/prorata hari berjalan
  */
 export function calculateNetWithIncidentals({
   realizedGrossProfit,
   monthlyFixedBurden,
   totalIncidentalOpex = 0,
   unrecoveredCapital = 0,
-  totalIncidentalCapex = 0
+  totalIncidentalCapex = 0,
+  daysInMonth = 30,
+  daysElapsed = 30
 }) {
   const gross = num(realizedGrossProfit);
   const burden = num(monthlyFixedBurden);
   const opex = num(totalIncidentalOpex);
   const unrec = num(unrecoveredCapital);
   const capex = num(totalIncidentalCapex);
+  const totalDays = Math.max(1, num(daysInMonth) || 30);
+  const elapsed = clamp(num(daysElapsed) || totalDays, 1, totalDays);
 
-  // Beban operasional bulanan (rutin + opex insidental)
+  // Beban rutin harian
+  const dailyBurden = burden / totalDays;
+  // Beban rutin proporsional/prorata sesuai jumlah hari yang sudah berjalan
+  const proratedBurden = Math.round(dailyBurden * elapsed);
+
+  // Beban operasional sebulan penuh (rutin penuh + opex)
   const totalOperatingBurden = burden + opex;
-  // Laba operasional sebelum belanja modal (Capex)
-  const operatingNetProfit = gross - totalOperatingBurden;
+  // Beban operasional prorata hari berjalan (rutin prorata + opex)
+  const proratedOperatingBurden = proratedBurden + opex;
 
-  // Total uang kas keluar bulan ini (rutin + opex + capex)
-  const totalCashOutflow = totalOperatingBurden + capex;
-  // Sisa kas riil berjalan (Net Cash Flow) setelah seluruh pengeluaran kas
-  const netCashRemaining = gross - totalCashOutflow;
+  // Laba bersih operasional riil berjalan (Laba kotor - Beban rutin prorata - Opex)
+  const operatingNetProfit = gross - proratedOperatingBurden;
+
+  // Total uang kas keluar prorata (Beban prorata + opex + capex)
+  const proratedCashOutflow = proratedOperatingBurden + capex;
+  // Sisa kas riil berjalan setelah belanja modal/aset
+  const netCashRemaining = gross - proratedCashOutflow;
 
   // Catatan: unrecoveredCapital dari database sudah ter-update secara persisten
   // saat transaksi Capex dicatat. Maka di sini tidak ditambah capex lagi untuk mencegah double-counting.
@@ -275,14 +287,19 @@ export function calculateNetWithIncidentals({
   }
 
   return {
+    dailyBurden,
+    proratedBurden,
+    daysElapsed: elapsed,
+    daysInMonth: totalDays,
     totalOperatingBurden,
-    totalCashOutflow,
+    proratedOperatingBurden,
+    totalCashOutflow: proratedCashOutflow,
     operatingNetProfit,
-    netProfitMonthToDate: netCashRemaining,
+    netProfitMonthToDate: operatingNetProfit,
     netCashRemaining,
     adjustedUnrecoveredCapital,
     projectedMonthsToPayback,
-    isProfitable: netCashRemaining > 0
+    isProfitable: operatingNetProfit > 0
   };
 }
 

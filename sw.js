@@ -6,7 +6,7 @@
  *
  * Bump CACHE_VERSION whenever any shell file changes so clients refresh.
  */
-const CACHE_VERSION = "bisnisku-v18";
+const CACHE_VERSION = "bisnisku-v19";
 
 const APP_SHELL = [
   "./",

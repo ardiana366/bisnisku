@@ -376,6 +376,19 @@ function derive() {
     dailyTarget: be.dailyTarget,
   });
 
+  const now = new Date();
+  const isCurrentMonth = (year === now.getFullYear() && month === now.getMonth());
+  const isPastMonth = (year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth()));
+
+  let daysElapsed = days;
+  if (isPastMonth) {
+    daysElapsed = days;
+  } else if (rr.recorded > 0) {
+    daysElapsed = Math.min(rr.recorded, days);
+  } else if (isCurrentMonth) {
+    daysElapsed = Math.min(now.getDate(), days);
+  }
+
   const { totalIncidentalOpex, totalIncidentalCapex } = getMonthlyIncidentals();
   const incCalc = calculateNetWithIncidentals({
     realizedGrossProfit: rr.totalGross,
@@ -383,9 +396,11 @@ function derive() {
     totalIncidentalOpex,
     unrecoveredCapital: biz.unrecoveredCapital,
     totalIncidentalCapex,
+    daysInMonth: days,
+    daysElapsed,
   });
 
-  return { biz, burden, be, days, rr, totalIncidentalOpex, totalIncidentalCapex, incCalc };
+  return { biz, burden, be, days, daysElapsed, rr, totalIncidentalOpex, totalIncidentalCapex, incCalc };
 }
 
 function periodRange() {
@@ -603,12 +618,12 @@ function renderKpis() {
   const { rr, burden, biz, totalIncidentalOpex, totalIncidentalCapex, incCalc, days } = d;
 
   els.kpiRevenue.textContent = formatRp(rr.totalRevenue);
-  const cov = incCalc.totalOperatingBurden > 0
-    ? (rr.totalGross / incCalc.totalOperatingBurden) * 100
+  const cov = incCalc.proratedOperatingBurden > 0
+    ? (rr.totalGross / incCalc.proratedOperatingBurden) * 100
     : (burden > 0 ? (rr.totalGross / burden) * 100 : 0);
   els.kpiMeter.style.width = clamp(cov, 0, 100) + "%";
   els.kpiMeter.className = cov >= 100 ? "is-ok" : "";
-  els.kpiRevenueSub.textContent = `${cov.toFixed(0)}% beban tertutup (laba kotor ${formatRp(rr.totalGross)} dari beban operasional ${formatRp(incCalc.totalOperatingBurden)})`;
+  els.kpiRevenueSub.textContent = `${cov.toFixed(0)}% beban berjalan tertutup (laba kotor ${formatRp(rr.totalGross)} dari beban prorata ${formatRp(incCalc.proratedOperatingBurden)})`;
 
   els.kpiAvg.textContent = formatRp(rr.avgDailyRevenue);
   els.kpiAvgSub.textContent = `${rr.recorded} hari tercatat · ${rr.daysReachedBep} hari capai BEP`;
@@ -616,39 +631,40 @@ function renderKpis() {
   if (rr.recorded === 0 && totalIncidentalOpex === 0 && totalIncidentalCapex === 0) {
     els.kpiNet.textContent = "–";
     els.kpiNet.className = "kpi__value";
-    els.kpiNetSub.textContent = "Catat penjualan atau pengeluaran untuk melihat proyeksi";
+    els.kpiNetSub.textContent = "Catat penjualan atau pengeluaran untuk melihat laba";
     if (els.kpiNetBreakdown) els.kpiNetBreakdown.innerHTML = "";
   } else {
-    // Proyeksi sisa kas riil akhir bulan:
-    // Jika ada catatan penjualan: (rata-rata laba kotor * jumlah hari) - total kas keluar (beban operasional + capex)
-    // Jika hanya pengeluaran: sisa kas riil berjalan
+    // Laba Bersih Riil Berjalan dengan Beban Rutin Prorata (proporsional hari berjalan):
+    const currentNet = incCalc.operatingNetProfit;
+
+    // Proyeksi Laba Bersih Akhir Bulan penuh:
     const projectedNet = rr.recorded > 0
-      ? Math.round(rr.avgDailyGross * days - incCalc.totalCashOutflow)
-      : incCalc.netCashRemaining;
+      ? Math.round(rr.avgDailyGross * days - incCalc.totalOperatingBurden)
+      : currentNet;
 
-    els.kpiNet.textContent = formatRp(projectedNet);
-    els.kpiNet.className = "kpi__value " + (projectedNet >= 0 ? "is-pos" : "is-neg");
+    els.kpiNet.textContent = formatRp(currentNet);
+    els.kpiNet.className = "kpi__value " + (currentNet >= 0 ? "is-pos" : "is-neg");
 
-    const effectivePayback = (projectedNet > 0 && incCalc.adjustedUnrecoveredCapital > 0)
-      ? incCalc.adjustedUnrecoveredCapital / projectedNet
+    const effectivePayback = (currentNet > 0 && incCalc.adjustedUnrecoveredCapital > 0)
+      ? (incCalc.adjustedUnrecoveredCapital / (currentNet * (days / incCalc.daysElapsed)))
       : incCalc.projectedMonthsToPayback;
     const pb = formatPayback(effectivePayback);
 
-    els.kpiNetSub.textContent = pb
-      ? `Estimasi balik modal ${pb} (sisa modal ${formatRp(incCalc.adjustedUnrecoveredCapital)})`
-      : "Dengan laju saat ini belum bisa balik modal";
+    els.kpiNetSub.textContent = projectedNet !== null
+      ? `Proyeksi akhir bulan: ${formatRp(projectedNet)}${pb ? ` · Balik modal ${pb}` : ""}`
+      : (pb ? `Estimasi balik modal ${pb}` : "Belum cukup data proyeksi");
 
     if (els.kpiNetBreakdown) {
       els.kpiNetBreakdown.innerHTML = `
-        <span>Laba Kotor: <strong>${formatRp(rr.totalGross)}</strong></span> · 
-        <span>Beban Rutin: <strong>${formatRp(burden)}</strong></span>
+        <span>Laba Kotor (${incCalc.daysElapsed} hr): <strong>${formatRp(rr.totalGross)}</strong></span> · 
+        <span>Beban Prorata (${incCalc.daysElapsed} hr): <strong>${formatRp(incCalc.proratedBurden)}</strong></span>
         ${totalIncidentalOpex > 0 ? ` · <span style="color: #fca5a5;">Opex: <strong>${formatRp(totalIncidentalOpex)}</strong></span>` : ""}
         ${totalIncidentalCapex > 0 ? ` · <span style="color: #93c5fd;">Capex: <strong>${formatRp(totalIncidentalCapex)}</strong></span>` : ""}
         <br>
-        ${totalIncidentalCapex > 0 ? `<span style="color: #cbd5e1;">Laba Operasional: <strong>${formatRp(incCalc.operatingNetProfit)}</strong></span> · ` : ""}
-        <span style="color: ${incCalc.netCashRemaining >= 0 ? '#34d399' : '#f87171'};">
-          Sisa Kas Riil Berjalan: <strong>${formatRp(incCalc.netCashRemaining)}</strong>
+        <span style="color: ${currentNet >= 0 ? '#34d399' : '#f87171'};">
+          Laba Bersih Berjalan: <strong>${formatRp(currentNet)}</strong>
         </span>
+        ${totalIncidentalCapex > 0 ? ` · <span style="color: ${incCalc.netCashRemaining >= 0 ? '#38bdf8' : '#f87171'};">Sisa Kas Riil: <strong>${formatRp(incCalc.netCashRemaining)}</strong></span>` : ""}
       `;
     }
   }
@@ -2692,13 +2708,16 @@ els.btnExportMonth?.addEventListener("click", () => {
     burden: d.burden,
     summary: {
       ...d.rr,
+      daysElapsed: d.incCalc.daysElapsed,
+      proratedBurden: d.incCalc.proratedBurden,
       totalIncidentalOpex: d.totalIncidentalOpex,
       totalIncidentalCapex: d.totalIncidentalCapex,
       operatingNetProfit: d.incCalc.operatingNetProfit,
-      netProfitMonthToDate: d.incCalc.netCashRemaining,
+      netCashRemaining: d.incCalc.netCashRemaining,
+      netProfitMonthToDate: d.incCalc.operatingNetProfit,
       projectedNet: d.rr.recorded > 0
-        ? Math.round(d.rr.avgDailyGross * d.days - d.incCalc.totalCashOutflow)
-        : d.incCalc.netCashRemaining,
+        ? Math.round(d.rr.avgDailyGross * d.days - d.incCalc.totalOperatingBurden)
+        : d.incCalc.operatingNetProfit,
     },
   });
   toast(`Mengunduh laporan: ${filename}`, "success");
