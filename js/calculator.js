@@ -240,7 +240,7 @@ export function runRate({
 /* ------------------------------------------------------------------ */
 
 /**
- * Menghitung Laba Bersih Akhir Bulan dengan menyertakan pengeluaran insidental
+ * Menghitung Laba Bersih & Arus Kas Akhir Bulan dengan menyertakan pengeluaran insidental
  */
 export function calculateNetWithIncidentals({
   realizedGrossProfit,
@@ -255,24 +255,34 @@ export function calculateNetWithIncidentals({
   const unrec = num(unrecoveredCapital);
   const capex = num(totalIncidentalCapex);
 
-  // Laba bersih riil = Laba kotor - Beban rutin - Pengeluaran insidental operasional
+  // Beban operasional bulanan (rutin + opex insidental)
   const totalOperatingBurden = burden + opex;
-  const netProfitMonthToDate = gross - totalOperatingBurden;
+  // Laba operasional sebelum belanja modal (Capex)
+  const operatingNetProfit = gross - totalOperatingBurden;
 
-  // Sisa modal disesuaikan jika ada pembelian aset baru
-  const adjustedUnrecoveredCapital = unrec + capex;
+  // Total uang kas keluar bulan ini (rutin + opex + capex)
+  const totalCashOutflow = totalOperatingBurden + capex;
+  // Sisa kas riil berjalan (Net Cash Flow) setelah seluruh pengeluaran kas
+  const netCashRemaining = gross - totalCashOutflow;
+
+  // Catatan: unrecoveredCapital dari database sudah ter-update secara persisten
+  // saat transaksi Capex dicatat. Maka di sini tidak ditambah capex lagi untuk mencegah double-counting.
+  const adjustedUnrecoveredCapital = Math.max(0, unrec);
 
   let projectedMonthsToPayback = null;
-  if (adjustedUnrecoveredCapital > 0 && netProfitMonthToDate > 0) {
-    projectedMonthsToPayback = Number((adjustedUnrecoveredCapital / netProfitMonthToDate).toFixed(1));
+  if (adjustedUnrecoveredCapital > 0 && operatingNetProfit > 0) {
+    projectedMonthsToPayback = Number((adjustedUnrecoveredCapital / operatingNetProfit).toFixed(1));
   }
 
   return {
     totalOperatingBurden,
-    netProfitMonthToDate,
+    totalCashOutflow,
+    operatingNetProfit,
+    netProfitMonthToDate: netCashRemaining,
+    netCashRemaining,
     adjustedUnrecoveredCapital,
     projectedMonthsToPayback,
-    isProfitable: netProfitMonthToDate > 0
+    isProfitable: netCashRemaining > 0
   };
 }
 
@@ -288,6 +298,7 @@ export function calculateNetWithIncidentals({
  * @param {number} [unrecoveredCapital=0] Remaining unpaid initial capital
  * @param {object} [ratios={ emergency: 0.4, reinvest: 0.3, dividend: 0.3 }]
  * @param {number} [investorSharePct=0] Percentage of net surplus allocated to dynamic investor profit share
+ * @param {number} [totalIncidentalCapex=0] One-off capital expenditures (cash outflows)
  * @returns {{ isSurplus: boolean, netSurplus: number, investorSharePct: number, investorPayout: number, emergencyFund: number, reinvestment: number, dividend: number, unrecoveredCapital: number }}
  */
 export function calculateProfitAllocation(
@@ -295,12 +306,14 @@ export function calculateProfitAllocation(
   monthlyFixedBurden,
   unrecoveredCapital = 0,
   ratios = { emergency: 0.4, reinvest: 0.3, dividend: 0.3 },
-  investorSharePct = 0
+  investorSharePct = 0,
+  totalIncidentalCapex = 0
 ) {
   const gross = num(realizedGrossProfit);
   const burden = num(monthlyFixedBurden);
   const unrec = num(unrecoveredCapital);
-  const netSurplus = gross - burden;
+  const capex = num(totalIncidentalCapex);
+  const netSurplus = gross - (burden + capex);
 
   if (netSurplus <= 0) {
     return {

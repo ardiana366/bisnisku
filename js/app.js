@@ -608,7 +608,7 @@ function renderKpis() {
     : (burden > 0 ? (rr.totalGross / burden) * 100 : 0);
   els.kpiMeter.style.width = clamp(cov, 0, 100) + "%";
   els.kpiMeter.className = cov >= 100 ? "is-ok" : "";
-  els.kpiRevenueSub.textContent = `${cov.toFixed(0)}% beban tertutup (laba kotor ${formatRp(rr.totalGross)} dari beban ${formatRp(incCalc.totalOperatingBurden)})`;
+  els.kpiRevenueSub.textContent = `${cov.toFixed(0)}% beban tertutup (laba kotor ${formatRp(rr.totalGross)} dari beban operasional ${formatRp(incCalc.totalOperatingBurden)})`;
 
   els.kpiAvg.textContent = formatRp(rr.avgDailyRevenue);
   els.kpiAvgSub.textContent = `${rr.recorded} hari tercatat · ${rr.daysReachedBep} hari capai BEP`;
@@ -619,11 +619,12 @@ function renderKpis() {
     els.kpiNetSub.textContent = "Catat penjualan atau pengeluaran untuk melihat proyeksi";
     if (els.kpiNetBreakdown) els.kpiNetBreakdown.innerHTML = "";
   } else {
-    // If sales recorded: projected net at month end = (avgDailyGross * days) - totalOperatingBurden
-    // Otherwise if only incidental expenses: month-to-date net
+    // Proyeksi sisa kas riil akhir bulan:
+    // Jika ada catatan penjualan: (rata-rata laba kotor * jumlah hari) - total kas keluar (beban operasional + capex)
+    // Jika hanya pengeluaran: sisa kas riil berjalan
     const projectedNet = rr.recorded > 0
-      ? Math.round(rr.avgDailyGross * days - incCalc.totalOperatingBurden)
-      : incCalc.netProfitMonthToDate;
+      ? Math.round(rr.avgDailyGross * days - incCalc.totalCashOutflow)
+      : incCalc.netCashRemaining;
 
     els.kpiNet.textContent = formatRp(projectedNet);
     els.kpiNet.className = "kpi__value " + (projectedNet >= 0 ? "is-pos" : "is-neg");
@@ -641,9 +642,13 @@ function renderKpis() {
       els.kpiNetBreakdown.innerHTML = `
         <span>Laba Kotor: <strong>${formatRp(rr.totalGross)}</strong></span> · 
         <span>Beban Rutin: <strong>${formatRp(burden)}</strong></span>
-        ${totalIncidentalOpex > 0 ? ` · <span style="color: #fca5a5;">Insidental: <strong>${formatRp(totalIncidentalOpex)}</strong></span>` : ""}
+        ${totalIncidentalOpex > 0 ? ` · <span style="color: #fca5a5;">Opex: <strong>${formatRp(totalIncidentalOpex)}</strong></span>` : ""}
         ${totalIncidentalCapex > 0 ? ` · <span style="color: #93c5fd;">Capex: <strong>${formatRp(totalIncidentalCapex)}</strong></span>` : ""}
-        <br><span style="color: ${incCalc.netProfitMonthToDate >= 0 ? '#34d399' : '#f87171'};">Laba Bersih Riil Berjalan: <strong>${formatRp(incCalc.netProfitMonthToDate)}</strong></span>
+        <br>
+        ${totalIncidentalCapex > 0 ? `<span style="color: #cbd5e1;">Laba Operasional: <strong>${formatRp(incCalc.operatingNetProfit)}</strong></span> · ` : ""}
+        <span style="color: ${incCalc.netCashRemaining >= 0 ? '#34d399' : '#f87171'};">
+          Sisa Kas Riil Berjalan: <strong>${formatRp(incCalc.netCashRemaining)}</strong>
+        </span>
       `;
     }
   }
@@ -657,16 +662,17 @@ function renderProfitAllocation() {
     return;
   }
 
-  const { biz, burden, totalIncidentalOpex, incCalc } = d;
+  const { biz, burden, totalIncidentalOpex, totalIncidentalCapex, incCalc } = d;
   // Chronological sort: earliest date to latest date
-  const sorted = [...state.sales].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...state.sales].sort((a, b) => a.date.localeCompare(a.date));
   let cumulativeGross = 0;
   let bepReachedDate = null;
-  const totalBurdenToCover = burden + (totalIncidentalOpex || 0);
+  // Kewajiban kas total (Beban Rutin + Opex + Capex) yang harus tertutup agar ada surplus kas riil
+  const totalOutflowToCover = burden + (totalIncidentalOpex || 0) + (totalIncidentalCapex || 0);
 
   for (const s of sorted) {
     cumulativeGross += num(s.grossProfit);
-    if (!bepReachedDate && (totalBurdenToCover > 0 ? cumulativeGross >= totalBurdenToCover : cumulativeGross > 0)) {
+    if (!bepReachedDate && (totalOutflowToCover > 0 ? cumulativeGross >= totalOutflowToCover : cumulativeGross > 0)) {
       bepReachedDate = s.date;
     }
   }
@@ -679,10 +685,11 @@ function renderProfitAllocation() {
 
   const allocation = calculateProfitAllocation(
     cumulativeGross,
-    totalBurdenToCover,
+    burden + (totalIncidentalOpex || 0),
     incCalc?.adjustedUnrecoveredCapital ?? biz.unrecoveredCapital,
     undefined,
-    totalDynamicInvestorPct
+    totalDynamicInvestorPct,
+    totalIncidentalCapex || 0
   );
 
   if (!allocation.isSurplus) {
@@ -692,10 +699,10 @@ function renderProfitAllocation() {
 
   els.profitCard.style.display = "block";
   els.bepReachedDate.textContent = formatDdMmYyyy(bepReachedDate);
-  els.surplusNetAmount.textContent = `Rp ${Math.round(allocation.netSurplus).toLocaleString("id-ID")}`;
-  els.allocEmergencyVal.textContent = `Rp ${Math.round(allocation.emergencyFund).toLocaleString("id-ID")}`;
-  els.allocReinvestVal.textContent = `Rp ${Math.round(allocation.reinvestment).toLocaleString("id-ID")}`;
-  els.allocDividendVal.textContent = `Rp ${Math.round(allocation.dividend).toLocaleString("id-ID")}`;
+  els.surplusNetAmount.textContent = formatRp(allocation.netSurplus);
+  els.allocEmergencyVal.textContent = formatRp(allocation.emergencyFund);
+  els.allocReinvestVal.textContent = formatRp(allocation.reinvestment);
+  els.allocDividendVal.textContent = formatRp(allocation.dividend);
 
   if (els.allocInvestorCard) {
     if (allocation.investorPayout > 0) {
@@ -704,7 +711,7 @@ function renderProfitAllocation() {
         els.allocInvestorTitle.textContent = `🤝 Bagi Hasil Investor (${totalDynamicInvestorPct}%)`;
       }
       if (els.allocInvestorVal) {
-        els.allocInvestorVal.textContent = `Rp ${Math.round(allocation.investorPayout).toLocaleString("id-ID")}`;
+        els.allocInvestorVal.textContent = formatRp(allocation.investorPayout);
       }
       if (els.allocInvestorDesc) {
         const names = dynamicInvestors.map((a) => `${a.name} (${a.dynamicProfitPct}%)`).join(", ");
@@ -717,7 +724,7 @@ function renderProfitAllocation() {
 
   if (num(allocation.unrecoveredCapital) > 0) {
     els.capexPaybackBanner.style.display = "block";
-    els.remainingCapexVal.textContent = `Rp ${Math.round(num(allocation.unrecoveredCapital)).toLocaleString("id-ID")}`;
+    els.remainingCapexVal.textContent = formatRp(num(allocation.unrecoveredCapital));
   } else {
     els.capexPaybackBanner.style.display = "none";
   }
@@ -2626,6 +2633,11 @@ els.formExpense?.addEventListener("submit", async (e) => {
       els.btnSaveExpense.textContent = "Menyimpan…";
     }
     await addIncidentalExpense(state.currentId, payload);
+    const b = currentBiz();
+    if (b && payload.expenseType === "capex") {
+      b.unrecoveredCapital = (Number(b.unrecoveredCapital) || 0) + Number(payload.amount);
+      renderAll();
+    }
     hideExpenseModal();
     els.formExpense?.reset();
     toast("Pengeluaran berhasil dicatat.", "success");
@@ -2652,6 +2664,11 @@ els.expenseRecords?.addEventListener("click", async (e) => {
 
   try {
     await deleteIncidentalExpense(state.currentId, id, exp);
+    const b = currentBiz();
+    if (b && exp && exp.expenseType === "capex") {
+      b.unrecoveredCapital = Math.max(0, (Number(b.unrecoveredCapital) || 0) - Number(exp.amount));
+      renderAll();
+    }
     toast("Pengeluaran kas berhasil dihapus.", "success");
   } catch (err) {
     console.error("Error deleting expense:", err);
@@ -2677,7 +2694,11 @@ els.btnExportMonth?.addEventListener("click", () => {
       ...d.rr,
       totalIncidentalOpex: d.totalIncidentalOpex,
       totalIncidentalCapex: d.totalIncidentalCapex,
-      netProfitMonthToDate: d.incCalc.netProfitMonthToDate,
+      operatingNetProfit: d.incCalc.operatingNetProfit,
+      netProfitMonthToDate: d.incCalc.netCashRemaining,
+      projectedNet: d.rr.recorded > 0
+        ? Math.round(d.rr.avgDailyGross * d.days - d.incCalc.totalCashOutflow)
+        : d.incCalc.netCashRemaining,
     },
   });
   toast(`Mengunduh laporan: ${filename}`, "success");

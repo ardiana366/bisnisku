@@ -102,13 +102,16 @@ export function buildMonthCsv({ business, products, sales, expenses = [], year, 
   if (summary.totalIncidentalCapex !== undefined) {
     lines.push(row(["Total Pengeluaran Insidental Capex (Rp)", round(summary.totalIncidentalCapex)]));
   }
+  if (summary.operatingNetProfit !== undefined && summary.totalIncidentalCapex > 0) {
+    lines.push(row(["Laba Operasional Berjalan (Rp)", round(summary.operatingNetProfit)]));
+  }
   if (summary.netProfitMonthToDate !== undefined) {
-    lines.push(row(["Laba Bersih Riil Berjalan (Rp)", round(summary.netProfitMonthToDate)]));
+    lines.push(row(["Sisa Kas Riil Berjalan (Rp)", round(summary.netProfitMonthToDate)]));
   }
 
   lines.push(
     row([
-      "Proyeksi Laba Bersih Akhir Bulan (Rp)",
+      "Proyeksi Sisa Kas Akhir Bulan (Rp)",
       summary.projectedNet === null ? "-" : round(summary.projectedNet),
     ])
   );
