@@ -711,10 +711,11 @@ export async function addIncidentalExpense(businessId, expenseData) {
     createdAt: serverTimestamp()
   });
 
-  // 2. Jika tipe Capex, otomatis tambahkan ke unrecoveredCapital bisnis
+  // 2. Jika tipe Capex, otomatis tambahkan ke initialCapital dan unrecoveredCapital bisnis
   if (expenseData.expenseType === "capex" && expenseData.amount > 0) {
     const businessDocRef = doc(db, "devices", deviceId, "businesses", businessId);
     await updateDoc(businessDocRef, {
+      initialCapital: increment(Number(expenseData.amount) || 0),
       unrecoveredCapital: increment(Number(expenseData.amount) || 0)
     });
   }
@@ -751,7 +752,7 @@ export function subscribeMonthlyExpenses(businessId, year, month, onUpdate, onEr
 
 /**
  * Hapus dokumen pengeluaran insidental.
- * Jika bertipe Capex dan data tersedia, kurangi kembali unrecoveredCapital bisnis.
+ * Jika bertipe Capex dan data tersedia, kurangi kembali initialCapital dan unrecoveredCapital bisnis.
  */
 export async function deleteIncidentalExpense(businessId, expenseId, expenseData = null) {
   const deviceId = getDeviceId();
@@ -760,6 +761,7 @@ export async function deleteIncidentalExpense(businessId, expenseId, expenseData
   if (expenseData && expenseData.expenseType === "capex" && Number(expenseData.amount) > 0) {
     const businessDocRef = doc(db, "devices", deviceId, "businesses", businessId);
     await updateDoc(businessDocRef, {
+      initialCapital: increment(-Number(expenseData.amount)),
       unrecoveredCapital: increment(-Number(expenseData.amount))
     });
   }

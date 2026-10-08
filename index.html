@@ -896,9 +896,25 @@
               <input type="radio" name="expenseType" value="capex" />
               <div class="toggle-content">
                 <strong>Beli Aset Baru / Modal (Capex)</strong>
-                <small>Beli mesin baru, renovasi tempat. Menambah target sisa modal yang harus balik.</small>
+                <small>Beli mesin baru, renovasi tempat. Menambah modal usaha &amp; otomatis menaikkan target BEP bulan ini.</small>
               </div>
             </label>
+          </div>
+        </div>
+
+        <!-- Capex Impact Live Preview Box -->
+        <div id="exp-capex-preview" class="sim-result-box" style="display: none; margin-bottom: 1rem; border-color: #38bdf8; background: rgba(15, 23, 42, 0.7);">
+          <div class="sim-metric-row">
+            <span>Tambahan Modal (Capex):</span>
+            <strong id="exp-prev-capex" class="text-light">+Rp 0</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Dampak ke Target BEP Harian:</span>
+            <strong id="exp-prev-daily" style="color: #38bdf8;">+Rp 0 / hari</strong>
+          </div>
+          <div class="sim-metric-row">
+            <span>Target BEP Harian Baru (Bulan Ini):</span>
+            <strong id="exp-prev-total-daily" style="color: #f59e0b;">Rp 0 / hari</strong>
           </div>
         </div>
 

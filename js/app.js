@@ -366,11 +366,14 @@ function derive() {
   if (!biz) return null;
   const { year, month } = state.period;
   const burden = num(biz.monthlyFixedBurden);
-  const be = breakEven({ burden, products: state.products });
+  const { totalIncidentalOpex, totalIncidentalCapex } = getMonthlyIncidentals();
+  // CAPEX menambah modal usaha yang dibebankan penuh ke target BEP bulan berjalan
+  const effectiveBurden = burden + totalIncidentalCapex;
+  const be = breakEven({ burden: effectiveBurden, products: state.products });
   const days = daysInMonth(year, month);
   const rr = runRate({
     sales: state.sales,
-    burden,
+    burden: effectiveBurden,
     days,
     unrecoveredCapital: biz.unrecoveredCapital,
     dailyTarget: be.dailyTarget,
@@ -389,7 +392,6 @@ function derive() {
     daysElapsed = Math.min(now.getDate(), days);
   }
 
-  const { totalIncidentalOpex, totalIncidentalCapex } = getMonthlyIncidentals();
   const incCalc = calculateNetWithIncidentals({
     realizedGrossProfit: rr.totalGross,
     monthlyFixedBurden: burden,
@@ -400,7 +402,18 @@ function derive() {
     daysElapsed,
   });
 
-  return { biz, burden, be, days, daysElapsed, rr, totalIncidentalOpex, totalIncidentalCapex, incCalc };
+  return {
+    biz,
+    burden,
+    effectiveBurden,
+    be,
+    days,
+    daysElapsed,
+    rr,
+    totalIncidentalOpex,
+    totalIncidentalCapex,
+    incCalc,
+  };
 }
 
 function periodRange() {
@@ -618,12 +631,15 @@ function renderKpis() {
   const { rr, burden, biz, totalIncidentalOpex, totalIncidentalCapex, incCalc, days } = d;
 
   els.kpiRevenue.textContent = formatRp(rr.totalRevenue);
-  const cov = incCalc.proratedOperatingBurden > 0
-    ? (rr.totalGross / incCalc.proratedOperatingBurden) * 100
+  const targetBurden = totalIncidentalCapex > 0
+    ? incCalc.totalCashOutflow
+    : incCalc.proratedOperatingBurden;
+  const cov = targetBurden > 0
+    ? (rr.totalGross / targetBurden) * 100
     : (burden > 0 ? (rr.totalGross / burden) * 100 : 0);
   els.kpiMeter.style.width = clamp(cov, 0, 100) + "%";
   els.kpiMeter.className = cov >= 100 ? "is-ok" : "";
-  els.kpiRevenueSub.textContent = `${cov.toFixed(0)}% beban berjalan tertutup (laba kotor ${formatRp(rr.totalGross)} dari beban prorata ${formatRp(incCalc.proratedOperatingBurden)})`;
+  els.kpiRevenueSub.textContent = `${cov.toFixed(0)}% beban berjalan tertutup (laba kotor ${formatRp(rr.totalGross)} dari ${totalIncidentalCapex > 0 ? "target beban + capex" : "beban prorata"} ${formatRp(targetBurden)})`;
 
   els.kpiAvg.textContent = formatRp(rr.avgDailyRevenue);
   els.kpiAvgSub.textContent = `${rr.recorded} hari tercatat · ${rr.daysReachedBep} hari capai BEP`;
@@ -749,10 +765,16 @@ function renderProfitAllocation() {
 function renderBep() {
   const d = derive();
   if (!d) return;
-  const { be, burden } = d;
+  const { be, burden, effectiveBurden, totalIncidentalCapex } = d;
   const stat = (label, value) => `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
+
+  let burdenDisplay = formatRp(burden);
+  if (totalIncidentalCapex > 0) {
+    burdenDisplay = `${formatRp(effectiveBurden)} <small style="display:block; font-size:0.75rem; color:#94a3b8; font-weight:normal;">(Beban rutin ${formatRp(burden)} + Capex ${formatRp(totalIncidentalCapex)})</small>`;
+  }
+
   els.bepStats.innerHTML =
-    stat("Beban bulanan", formatRp(burden)) +
+    stat("Beban bulanan", burdenDisplay) +
     stat("Margin tertimbang", `${(be.wacmr * 100).toFixed(1)}%`) +
     stat("Target BEP bulanan", be.valid ? formatRp(be.monthlyTarget) : "–") +
     stat("Target BEP harian", be.valid ? formatRp(be.dailyTarget) : "–");
@@ -2579,6 +2601,7 @@ function openExpenseModal() {
   if (els.expNotes) els.expNotes.value = "";
   const opexRadio = els.formExpense?.querySelector('input[name="expenseType"][value="opex"]');
   if (opexRadio) opexRadio.checked = true;
+  updateExpenseModalPreview();
   if (els.expenseModal) {
     els.expenseModal.style.display = "flex";
     els.expTitle?.focus();
@@ -2589,7 +2612,43 @@ function hideExpenseModal() {
   if (els.expenseModal) {
     els.expenseModal.style.display = "none";
   }
+  updateExpenseModalPreview();
 }
+
+function updateExpenseModalPreview() {
+  const previewBox = $("exp-capex-preview");
+  if (!previewBox) return;
+  const expenseType = els.formExpense?.querySelector('input[name="expenseType"]:checked')?.value || "opex";
+  const amount = Number(els.expAmount?.value) || 0;
+
+  if (expenseType !== "capex" || amount <= 0) {
+    previewBox.style.display = "none";
+    return;
+  }
+
+  const d = derive();
+  previewBox.style.display = "block";
+  const prevCapex = $("exp-prev-capex");
+  const prevDaily = $("exp-prev-daily");
+  const prevTotalDaily = $("exp-prev-total-daily");
+
+  if (prevCapex) prevCapex.textContent = `+${formatRp(amount)}`;
+
+  if (d && d.be && d.be.wacmr > 0) {
+    const deltaDaily = Math.round((amount / d.be.wacmr) / 30);
+    const newDaily = d.be.dailyTarget + deltaDaily;
+    if (prevDaily) prevDaily.textContent = `+${formatRp(deltaDaily)} / hari`;
+    if (prevTotalDaily) prevTotalDaily.textContent = `${formatRp(newDaily)} / hari`;
+  } else {
+    if (prevDaily) prevDaily.textContent = "–";
+    if (prevTotalDaily) prevTotalDaily.textContent = "–";
+  }
+}
+
+els.expAmount?.addEventListener("input", updateExpenseModalPreview);
+els.formExpense?.querySelectorAll('input[name="expenseType"]').forEach((r) => {
+  r.addEventListener("change", updateExpenseModalPreview);
+});
 
 els.btnOpenDailySales?.addEventListener("click", () => openLogger(toYmd()));
 els.btnOpenExpenseModal?.addEventListener("click", () => openExpenseModal());
@@ -2651,6 +2710,7 @@ els.formExpense?.addEventListener("submit", async (e) => {
     await addIncidentalExpense(state.currentId, payload);
     const b = currentBiz();
     if (b && payload.expenseType === "capex") {
+      b.initialCapital = (Number(b.initialCapital) || 0) + Number(payload.amount);
       b.unrecoveredCapital = (Number(b.unrecoveredCapital) || 0) + Number(payload.amount);
       renderAll();
     }
@@ -2682,6 +2742,7 @@ els.expenseRecords?.addEventListener("click", async (e) => {
     await deleteIncidentalExpense(state.currentId, id, exp);
     const b = currentBiz();
     if (b && exp && exp.expenseType === "capex") {
+      b.initialCapital = Math.max(0, (Number(b.initialCapital) || 0) - Number(exp.amount));
       b.unrecoveredCapital = Math.max(0, (Number(b.unrecoveredCapital) || 0) - Number(exp.amount));
       renderAll();
     }
@@ -2705,9 +2766,11 @@ els.btnExportMonth?.addEventListener("click", () => {
     year: state.period.year,
     monthIndex0: state.period.month,
     dailyTarget: d.be.dailyTarget,
-    burden: d.burden,
+    burden: d.effectiveBurden ?? d.burden,
     summary: {
       ...d.rr,
+      baseBurden: d.burden,
+      effectiveBurden: d.effectiveBurden,
       daysElapsed: d.incCalc.daysElapsed,
       proratedBurden: d.incCalc.proratedBurden,
       totalIncidentalOpex: d.totalIncidentalOpex,

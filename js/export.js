@@ -33,7 +33,11 @@ export function buildMonthCsv({ business, products, sales, expenses = [], year, 
   lines.push(row(["Bisnisku - Laporan Penjualan & Pengeluaran"]));
   lines.push(row(["Usaha", business.name]));
   lines.push(row(["Periode", `${MONTHS_ID[monthIndex0]} ${year}`]));
-  lines.push(row(["Beban Rutin Bulanan (Rp)", round(burden)]));
+  lines.push(row(["Beban Rutin Bulanan (Rp)", round(summary?.baseBurden !== undefined ? summary.baseBurden : burden)]));
+  if (summary?.totalIncidentalCapex > 0) {
+    lines.push(row(["Pengeluaran Capex Tambah Modal (Rp)", round(summary.totalIncidentalCapex)]));
+    lines.push(row(["Total Beban Tertarget Bulan Ini (Rp)", round(burden)]));
+  }
   lines.push(row(["Target BEP Harian (Rp)", round(dailyTarget)]));
   lines.push("");
 
